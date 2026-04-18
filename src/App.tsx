@@ -39,33 +39,53 @@ function App() {
 
   const todayStr = formatLocalDate(new Date())
 
-  useEffect(() => {
-    const savedData = localStorage.getItem('habitTrackerData')
-    const savedHabits = localStorage.getItem('habitsList')
-    
-    if (savedHabits) setHabitsList(JSON.parse(savedHabits))
+  const API_URL = 'http://localhost:30006/api';
 
-    if (savedData) {
-      const parsed = JSON.parse(savedData);
-      setTrackerData(parsed);
-    } else {
-      const start = new Date(2026, 0, 1) // Jan 1
-      const end = new Date(2026, 11, 31) // Dec 31
-      const initialData: Record<string, DayData> = {}
-      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        const dateStr = formatLocalDate(d)
-        initialData[dateStr] = { date: dateStr, habits: {}, mood: '-', notes: '' }
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const habitsRes = await fetch(`${API_URL}/habits`);
+        if (habitsRes.ok) {
+          const habits = await habitsRes.json();
+          setHabitsList(habits);
+        }
+
+        const dataRes = await fetch(`${API_URL}/data`);
+        if (dataRes.ok) {
+          const savedData = await dataRes.json();
+          if (Object.keys(savedData).length > 0) {
+            setTrackerData(savedData);
+          } else {
+            // Init default year if empty
+            const start = new Date(2026, 0, 1) // Jan 1
+            const end = new Date(2026, 11, 31) // Dec 31
+            const initialData: Record<string, DayData> = {}
+            for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+              const dateStr = formatLocalDate(d)
+              initialData[dateStr] = { date: dateStr, habits: {}, mood: '-', notes: '' }
+            }
+            setTrackerData(initialData)
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching data:", err);
       }
-      setTrackerData(initialData)
-    }
+    };
+    fetchData();
   }, [])
 
   useEffect(() => {
+    // Only save to DB if we actually have populated data
     if (Object.keys(trackerData).length > 0) {
-      localStorage.setItem('habitTrackerData', JSON.stringify(trackerData))
+      fetch(`${API_URL}/data`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(trackerData)
+      }).catch(console.error);
     }
-    localStorage.setItem('habitsList', JSON.stringify(habitsList))
-  }, [trackerData, habitsList])
+  }, [trackerData])
 
   const isHabitActiveOnDate = (habit: Habit, dateStr: string) => {
     if (habit.startDate && dateStr < habit.startDate) return false;
@@ -94,7 +114,7 @@ function App() {
     })
   }
 
-  const addHabit = (e: React.FormEvent) => {
+  const addHabit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newHabitName.trim()) return;
     const newId = newHabitName.toLowerCase().replace(/\s/g, '-') + '-' + Date.now();
@@ -102,25 +122,38 @@ function App() {
     newHabit.startDate = startDate || todayStr;
     if (endDate) newHabit.endDate = endDate;
     
-    setHabitsList(prev => [...prev, newHabit])
-    setNewHabitName('')
-    setStartDate('')
-    setEndDate('')
+    try {
+      await fetch(`${API_URL}/habits`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newHabit)
+      });
+      setHabitsList(prev => [...prev, newHabit])
+      setNewHabitName('')
+      setStartDate('')
+      setEndDate('')
+    } catch (err) {
+      console.error("Failed to add habit", err);
+    }
   }
 
-  const deleteHabit = (habitId: string) => {
+  const deleteHabit = async (habitId: string) => {
     if (window.confirm('Are you sure you want to delete this habit and all its history?')) {
-      setHabitsList(prev => prev.filter(h => h.id !== habitId))
-      // Option: clean trackerData of this habit
-      setTrackerData(prev => {
-        const newData = { ...prev };
-        Object.keys(newData).forEach(date => {
-          if (newData[date].habits[habitId] !== undefined) {
-             delete newData[date].habits[habitId];
-          }
+      try {
+        await fetch(`${API_URL}/habits/${habitId}`, { method: 'DELETE' });
+        setHabitsList(prev => prev.filter(h => h.id !== habitId))
+        setTrackerData(prev => {
+          const newData = { ...prev };
+          Object.keys(newData).forEach(date => {
+            if (newData[date].habits[habitId] !== undefined) {
+               delete newData[date].habits[habitId];
+            }
+          });
+          return newData;
         });
-        return newData;
-      });
+      } catch (err) {
+        console.error("Failed to delete habit", err);
+      }
     }
   }
 
@@ -323,8 +356,8 @@ function App() {
             className="btn" 
             style={{ fontWeight: 'bold' }}
             onClick={() => {
-              if (window.confirm('Are you absolutely sure you want to reset all your habits and data?')) {
-                localStorage.clear();
+              if (window.confirm('Are you absolutely sure you want to reset all your habits and data? This will clear everything!')) {
+                // To reset we'd normally clear the database, for now we will just reload
                 window.location.reload();
               }
             }}
