@@ -1,4 +1,4 @@
-# 🚀 2026 Discipline Challenge - Habit Tracker
+# 🚀 Habit Tracker
 
 A modern, scalable Full-Stack Habit Tracker application. Built with a unified Microservices Architecture to track daily disciplines, habits, and consistency scores across a calendar year. 
 
